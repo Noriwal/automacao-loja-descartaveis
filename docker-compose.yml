@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  evolution:
+    image: evolutionapi/evolution:latest
+    container_name: evolution-api
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - API_KEY=${EVOLUTION_API_KEY}
+      - API_SECRET=${EVOLUTION_API_SECRET}
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL}/webhook/evolution
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:5432/${POSTGRES_DB}
+      # Outras configurações conforme a documentação da Evolution API
+    volumes:
+      - ./evolution_data:/app/data
+    depends_on:
+      - postgres_db
+
+  n8n:
+    image: n8n:latest
+    container_name: n8n
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL}/
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
+      - TZ=${GENERIC_TIMEZONE}
+      - DB_TYPE=postgres
+      - DB_POSTGRES_HOST=postgres_db
+      - DB_POSTGRES_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRES_USER=${POSTGRES_USER}
+      - DB_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_BASIC_AUTH_USER=${N8N_USERNAME}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      - N8N_EDITOR_BASE_URL=${N8N_WEBHOOK_URL}/
+      - N8N_PUSH_WEBHOOK_URL=${N8N_WEBHOOK_URL}/
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_QUEUE_HEALTH_CHECK_ACTIVE=true
+      - N8N_QUEUE_REDIS_HOST=redis_db
+      - N8N_QUEUE_REDIS_PORT=6379
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+    depends_on:
+      - postgres_db
+      - redis_db
+
+  postgres_db:
+    image: postgres:13
+    container_name: postgres_db
+    restart: always
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+
+  redis_db:
+    image: redis:latest
+    container_name: redis_db
+    restart: always
+    volumes:
+      - ./redis_data:/data
