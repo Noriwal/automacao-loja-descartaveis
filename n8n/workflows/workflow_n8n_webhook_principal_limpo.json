@@ -1,0 +1,219 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bot",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1968,
+        80
+      ],
+      "id": "c0494c52-93b3-4de1-8109-7901cd25b695",
+      "name": "Webhook Principal",
+      "webhookId": "e3557621-7c30-4438-a59c-7cbc6d474077"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst data = body.data || body;\nconst key = data.key || {};\nconst message = data.message || {};\n\nconst remoteJid = key.remoteJid || data.remoteJid || data.from || body.from || '';\nconst instance = body.instance || data.instance || $env.EVOLUTION_INSTANCE || 'default';\nconst messageId = key.id || data.messageId || body.messageId || '';\n\nlet text = '';\nlet messageType = 'unknown';\nlet mediaUrl = '';\nlet caption = '';\n\nif (message.conversation) {\n  text = message.conversation;\n  messageType = 'text';\n} else if (message.extendedTextMessage?.text) {\n  text = message.extendedTextMessage.text;\n  messageType = 'text';\n} else if (message.audioMessage) {\n  messageType = 'audio';\n  mediaUrl = message.audioMessage.url || data.mediaUrl || data.url || '';\n} else if (message.imageMessage) {\n  messageType = 'image';\n  mediaUrl = message.imageMessage.url || data.mediaUrl || data.url || '';\n  caption = message.imageMessage.caption || '';\n  text = caption;\n} else if (data.messageType) {\n  const mt = String(data.messageType).toLowerCase();\n  if (mt === 'conversation' || mt === 'extendedtextmessage' || mt === 'text') {\n    messageType = 'text';\n    text = data.text || data.body || '';\n  } else if (mt.includes('audio')) {\n    messageType = 'audio';\n    mediaUrl = data.mediaUrl || data.url || '';\n  } else if (mt.includes('image')) {\n    messageType = 'image';\n    mediaUrl = data.mediaUrl || data.url || '';\n    caption = data.caption || '';\n    text = caption;\n  } else {\n    messageType = mt;\n    text = data.text || data.body || '';\n  }\n}\n\nreturn [\n  {\n    json: {\n      raw: body,\n      event: body.event || data.event || '',\n      instance,\n      remoteJid,\n      messageId,\n      messageType,\n      text: String(text || '').trim(),\n      mediaUrl,\n      caption,\n      isFromMe: Boolean(key.fromMe)\n    }\n  }\n];"
+      },
+      "id": "9e77c6a3-a4f1-464c-84d0-0da6974c4fa2",
+      "name": "Normalizar mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1744,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "somente-texto",
+              "leftValue": "={{ $json.messageType }}",
+              "rightValue": "text",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "ignorar-proprias",
+              "leftValue": "={{ $json.isFromMe }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "tem-texto",
+              "leftValue": "={{ $json.text }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d238dca3-4c5b-4518-b746-03560eaaa586",
+      "name": "É mensagem de texto?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1520,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.4,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Você é um assistente de vendas e atendimento ao cliente amigável e prestativo para uma loja de descartáveis. Responda sempre em português brasileiro. Seja cordial, claro e objetivo. Ajude o cliente a encontrar produtos como copos, embalagens, pratos, talheres, guardanapos e itens para delivery. Não invente preço, estoque ou informação técnica: quando não souber, diga que vai verificar com a equipe. Sempre finalize perguntando se pode ajudar em mais alguma coisa.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify($json.text) }}\n    }\n  ]\n}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        -1296,
+        80
+      ],
+      "id": "d7b3aecf-0500-43bf-a5b4-4ae66febf762",
+      "name": "Message a model",
+      "credentials": {
+        "openAiApi": {
+          "id": "lXX3JCdk0bDlJdxJ",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Normalizar mensagem').first().json;\n\nconst resposta =\n  $json.choices?.[0]?.message?.content ||\n  $json.message?.content ||\n  $json.text ||\n  $json.output ||\n  'Desculpe, não consegui gerar uma resposta agora. Vou verificar com a equipe.';\n\nreturn [\n  {\n    json: {\n      instance: original.instance,\n      remoteJid: original.remoteJid,\n      messageId: original.messageId,\n      resposta: String(resposta).trim()\n    }\n  }\n];"
+      },
+      "id": "c751fdee-5e38-4bb7-b0d4-64a3a6560196",
+      "name": "Preparar resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -944,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "messages-api",
+        "instanceName": "={{ $json.instance }}",
+        "remoteJid": "={{ $json.remoteJid }}",
+        "messageText": "={{ $json.resposta }}",
+        "options_message": {}
+      },
+      "type": "n8n-nodes-evolution-api.evolutionApi",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        80
+      ],
+      "id": "068c8295-a2a6-4e3e-ad2c-470988331e07",
+      "name": "Enviar texto",
+      "credentials": {
+        "evolutionApi": {
+          "id": "ihmrqDf4atmAEl1y",
+          "name": "Evolution account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Principal": {
+      "main": [
+        [
+          {
+            "node": "Normalizar mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar mensagem": {
+      "main": [
+        [
+          {
+            "node": "É mensagem de texto?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É mensagem de texto?": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Preparar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar resposta": {
+      "main": [
+        [
+          {
+            "node": "Enviar texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar texto": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
