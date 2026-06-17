@@ -1,0 +1,121 @@
+{
+  "name": "03 - Audio WhatsApp - Whisper GPT TTS",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "evolution/audio",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-audio",
+      "name": "Webhook Audio Evolution",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst data = body.data || body;\nconst key = data.key || {};\nconst msg = data.message || {};\nconst audio = msg.audioMessage || data.audioMessage || {};\nreturn [{ json: { raw: body, instance: body.instance || data.instance || 'loja-descartaveis', remoteJid: key.remoteJid || data.remoteJid || '', mediaUrl: audio.url || data.mediaUrl || data.url || '', isFromMe: Boolean(key.fromMe) } }];"
+      },
+      "id": "normalizar-audio",
+      "name": "Normalizar audio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.mediaUrl }}",
+        "responseFormat": "file",
+        "options": {}
+      },
+      "id": "baixar-audio",
+      "name": "Baixar audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [740, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}"}]},
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {"parameters": [{"parameterType": "formBinaryData", "name": "file", "inputDataFieldName": "data"}, {"name": "model", "value": "whisper-1"}, {"name": "language", "value": "pt"}]},
+        "options": {}
+      },
+      "id": "transcrever-whisper",
+      "name": "Transcrever Whisper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}"}, {"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"gpt-4o-mini\",\"temperature\":0.4,\"messages\":[{\"role\":\"system\",\"content\":\"Você atende uma loja de descartáveis pelo WhatsApp. Responda em português brasileiro, de forma curta, cordial e útil. Não invente preço ou estoque.\"},{\"role\":\"user\",\"content\":{{ JSON.stringify($json.text || '') }}}]}",
+        "options": {}
+      },
+      "id": "gpt-audio",
+      "name": "Gerar resposta GPT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1260, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/speech",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}"}, {"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"gpt-4o-mini-tts\",\"voice\":\"alloy\",\"input\":{{ JSON.stringify($json.choices[0].message.content) }}}",
+        "responseFormat": "file",
+        "options": {}
+      },
+      "id": "gerar-tts",
+      "name": "Gerar audio TTS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { aviso: 'Etapa final: enviar o arquivo gerado pelo nó anterior usando o nó Evolution API de envio de áudio ou endpoint sendWhatsAppAudio/sendMedia da sua versão.' } }];"
+      },
+      "id": "instruir-envio-audio",
+      "name": "Enviar audio via Evolution API Node",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {"respondWith": "json", "responseBody": "={{ $json }}", "options": {}},
+      "id": "responder-audio",
+      "name": "Responder webhook audio",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2040, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Audio Evolution": {"main": [[{"node": "Normalizar audio", "type": "main", "index": 0}]]},
+    "Normalizar audio": {"main": [[{"node": "Baixar audio", "type": "main", "index": 0}]]},
+    "Baixar audio": {"main": [[{"node": "Transcrever Whisper", "type": "main", "index": 0}]]},
+    "Transcrever Whisper": {"main": [[{"node": "Gerar resposta GPT", "type": "main", "index": 0}]]},
+    "Gerar resposta GPT": {"main": [[{"node": "Gerar audio TTS", "type": "main", "index": 0}]]},
+    "Gerar audio TTS": {"main": [[{"node": "Enviar audio via Evolution API Node", "type": "main", "index": 0}]]},
+    "Enviar audio via Evolution API Node": {"main": [[{"node": "Responder webhook audio", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "tags": ["loja-descartaveis", "audio"]
+}
