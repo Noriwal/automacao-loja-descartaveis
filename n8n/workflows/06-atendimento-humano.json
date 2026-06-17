@@ -1,0 +1,96 @@
+{
+  "name": "06 - Atendimento Humano e Pausa da Automacao",
+  "nodes": [
+    {
+      "parameters": {"httpMethod": "POST", "path": "atendimento/humano", "responseMode": "lastNode", "options": {}},
+      "id": "webhook-humano",
+      "name": "Webhook Atendimento Humano",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst texto = String(body.texto || body.mensagem || '').toLowerCase();\nconst palavras = ['atendente', 'humano', 'pessoa', 'vendedor', 'falar com alguém', 'reclamação', 'problema', 'cancelar'];\nconst precisaHumano = palavras.some(p => texto.includes(p));\nreturn [{ json: { ...body, precisaHumano } }];"
+      },
+      "id": "detectar-humano",
+      "name": "Detectar pedido humano",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [{"leftValue": "={{ $json.precisaHumano }}", "rightValue": true, "operator": {"type": "boolean", "operation": "equals"}}],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-humano",
+      "name": "Precisa humano?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversations (customer_whatsapp_id, message_id, sender_type, message_type, content) VALUES ($1, $2, 'agent', 'text', 'Cliente solicitado para atendimento humano') ON CONFLICT (message_id) DO NOTHING RETURNING *;",
+        "options": {"queryReplacement": "={{ [$json.customer_whatsapp_id || $json.remoteJid, $json.message_id || ('handoff-' + Date.now())] }}"}
+      },
+      "id": "registrar-handoff",
+      "name": "Registrar handoff PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1020, 180],
+      "credentials": {"postgres": {"id": "CONFIGURAR_CREDENCIAL_POSTGRES", "name": "PostgreSQL Loja"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ...$json, resposta: 'Certo! Vou encaminhar você para um atendente humano. Por favor, aguarde um instante.' , avisoInterno: 'Notificar equipe/vendedor pelo canal configurado.' } }];"
+      },
+      "id": "preparar-handoff",
+      "name": "Preparar mensagem handoff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1280, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ...$json, aviso: 'Substitua este nó pelo node Evolution API Send Text para avisar o cliente e, se desejar, outro node para notificar o vendedor.' } }];"
+      },
+      "id": "evolution-handoff",
+      "name": "Enviar handoff via Evolution API Node",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 180]
+    },
+    {
+      "parameters": {"respondWith": "json", "responseBody": "={{ { ok: true, precisaHumano: $json.precisaHumano, resposta: $json.resposta || null } }}", "options": {}},
+      "id": "responder-handoff",
+      "name": "Responder handoff",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1800, 180]
+    },
+    {
+      "parameters": {"respondWith": "json", "responseBody": "={{ { ok: true, precisaHumano: false } }}", "options": {}},
+      "id": "responder-sem-handoff",
+      "name": "Responder sem handoff",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1020, 440]
+    }
+  ],
+  "connections": {
+    "Webhook Atendimento Humano": {"main": [[{"node": "Detectar pedido humano", "type": "main", "index": 0}]]},
+    "Detectar pedido humano": {"main": [[{"node": "Precisa humano?", "type": "main", "index": 0}]]},
+    "Precisa humano?": {"main": [[{"node": "Registrar handoff PostgreSQL", "type": "main", "index": 0}], [{"node": "Responder sem handoff", "type": "main", "index": 0}]]},
+    "Registrar handoff PostgreSQL": {"main": [[{"node": "Preparar mensagem handoff", "type": "main", "index": 0}]]},
+    "Preparar mensagem handoff": {"main": [[{"node": "Enviar handoff via Evolution API Node", "type": "main", "index": 0}]]},
+    "Enviar handoff via Evolution API Node": {"main": [[{"node": "Responder handoff", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "tags": ["loja-descartaveis", "humano", "handoff"]
+}
