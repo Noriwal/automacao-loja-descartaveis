@@ -1,0 +1,82 @@
+{
+  "name": "05 - Memoria de Conversa",
+  "nodes": [
+    {
+      "parameters": {"httpMethod": "POST", "path": "memoria/salvar", "responseMode": "lastNode", "options": {}},
+      "id": "webhook-memoria-salvar",
+      "name": "Webhook Salvar Memoria",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [220, 220]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversations (customer_whatsapp_id, message_id, sender_type, message_type, content, original_media_url, product_id) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (message_id) DO NOTHING RETURNING *;",
+        "options": {"queryReplacement": "={{ [$json.body.customer_whatsapp_id, $json.body.message_id, $json.body.sender_type, $json.body.message_type, $json.body.content, $json.body.original_media_url || null, $json.body.product_id || null] }}"}
+      },
+      "id": "salvar-conversa",
+      "name": "Salvar conversa PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [500, 220],
+      "credentials": {"postgres": {"id": "CONFIGURAR_CREDENCIAL_POSTGRES", "name": "PostgreSQL Loja"}}
+    },
+    {
+      "parameters": {"respondWith": "json", "responseBody": "={{ { ok: true, saved: $json } }}", "options": {}},
+      "id": "responder-salvar",
+      "name": "Responder salvar memoria",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [780, 220]
+    },
+    {
+      "parameters": {"httpMethod": "POST", "path": "memoria/historico", "responseMode": "lastNode", "options": {}},
+      "id": "webhook-historico",
+      "name": "Webhook Buscar Historico",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [220, 460]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sender_type, message_type, content, timestamp FROM conversations WHERE customer_whatsapp_id = $1 ORDER BY timestamp DESC LIMIT $2;",
+        "options": {"queryReplacement": "={{ [$json.body.customer_whatsapp_id, Number($json.body.limite || 10)] }}"}
+      },
+      "id": "buscar-historico",
+      "name": "Buscar historico PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [500, 460],
+      "credentials": {"postgres": {"id": "CONFIGURAR_CREDENCIAL_POSTGRES", "name": "PostgreSQL Loja"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "const historico = $input.all().map(i => i.json).reverse().map(m => ({ role: m.sender_type === 'agent' ? 'assistant' : 'user', content: m.content }));\nreturn [{ json: { historico } }];"
+      },
+      "id": "formatar-historico",
+      "name": "Formatar historico para GPT",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 460]
+    },
+    {
+      "parameters": {"respondWith": "json", "responseBody": "={{ $json }}", "options": {}},
+      "id": "responder-historico",
+      "name": "Responder historico",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1060, 460]
+    }
+  ],
+  "connections": {
+    "Webhook Salvar Memoria": {"main": [[{"node": "Salvar conversa PostgreSQL", "type": "main", "index": 0}]]},
+    "Salvar conversa PostgreSQL": {"main": [[{"node": "Responder salvar memoria", "type": "main", "index": 0}]]},
+    "Webhook Buscar Historico": {"main": [[{"node": "Buscar historico PostgreSQL", "type": "main", "index": 0}]]},
+    "Buscar historico PostgreSQL": {"main": [[{"node": "Formatar historico para GPT", "type": "main", "index": 0}]]},
+    "Formatar historico para GPT": {"main": [[{"node": "Responder historico", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "tags": ["loja-descartaveis", "memoria"]
+}
